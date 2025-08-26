@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Catchment Areas Map</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <input type="file" id="csvFile" accept=".csv" style="display: none;">
+    <style>
+        .file-upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .file-upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        .upload-section {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            font-weight: 300;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .map-container {
+            width: 100%;
+            height: 600px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            position: relative;
+            background: #f8f9fa;
+        }
+        
+        .legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+        
+        .legend h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 10px;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .school-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+            z-index: 1000;
+        }
+        
+        .school-info h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        
+        .voronoi-cell {
+            stroke: #fff;
+            stroke-width: 2;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+        
+        .voronoi-cell:hover {
+            opacity: 1;
+            stroke-width: 3;
+        }
+        
+        .school-marker {
+            stroke: #fff;
+            stroke-width: 3;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .school-marker:hover {
+            r: 8;
+            stroke-width: 4;
+        }
+        
+        .school-label {
+            font-size: 12px;
+            font-weight: bold;
+            fill: #2c3e50;
+            text-anchor: middle;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>School Catchment Areas</h1>
+        <div class="upload-section">
+            <button class="file-upload-btn" onclick="document.getElementById('csvFile').click()">
+                Upload CSV File
+            </button>
+            <p id="file-status">Please upload a CSV file with columns: URN, Name, PostCode, Score, Longitude, Latitude</p>
+        </div>
+        <div class="map-container" id="mapContainer" style="display: none;">
+            <svg id="map"></svg>
+            <div class="legend" id="legend">
+                <h3>School Scores</h3>
+                <div id="legend-items"></div>
+            </div>
+            <div class="school-info">
+                <h3>Hover over areas to see school details</h3>
+                <p>Each colored region shows the area closest to a particular school.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let schools = [];
+        
+        // 10 distinct colors for scores 2-10
+        const scoreColors = {
+            2: '#8B0000', // Dark red
+            3: '#B22222', // Fire brick
+            4: '#DC143C', // Crimson
+            5: '#FF4500', // Orange red
+            6: '#FF8C00', // Dark orange
+            7: '#FFA500', // Orange
+            8: '#FFD700', // Gold
+            9: '#ADFF2F', // Green yellow
+            10: '#32CD32' // Lime green
+        };
+
+        // File upload handler
+        document.getElementById('csvFile').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const csv = e.target.result;
+                    parseCSV(csv);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            schools = [];
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',').map(v => v.trim());
+                if (values.length >= 6) {
+                    schools.push({
+                        urn: parseInt(values[0]),
+                        name: values[1],
+                        postcode: values[2],
+                        score: parseInt(values[3]),
+                        lng: parseFloat(values[4]),
+                        lat: parseFloat(values[5])
+                    });
+                }
+            }
+            
+            if (schools.length > 0) {
+                document.getElementById('file-status').textContent = `Loaded ${schools.length} schools`;
+                document.getElementById('mapContainer').style.display = 'block';
+                createMap();
+                updateLegend();
+            } else {
+                document.getElementById('file-status').textContent = 'Error: No valid data found in CSV file';
+            }
+        }
+
+        function updateLegend() {
+            const uniqueScores = [...new Set(schools.map(s => s.score))].sort((a, b) => b - a);
+            const legendItems = document.getElementById('legend-items');
+            legendItems.innerHTML = '';
+            
+            uniqueScores.forEach(score => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `
+                    <div class="legend-color" style="background: ${scoreColors[score]};"></div>
+                    <span>Score: ${score}/10</span>
+                `;
+                legendItems.appendChild(item);
+            });
+        }
+
+        function createMap() {
+            // Clear existing map
+            d3.select("#map").selectAll("*").remove();
+            
+            // Set up dimensions
+            const container = d3.select("#map");
+            const containerNode = container.node().parentNode;
+            const width = containerNode.clientWidth;
+            const height = containerNode.clientHeight;
+
+            const svg = container
+                .attr("width", width)
+                .attr("height", height);
+
+            // Create projection centered on the schools
+            const bounds = {
+                minLat: d3.min(schools, d => d.lat) - 0.02,
+                maxLat: d3.max(schools, d => d.lat) + 0.02,
+                minLng: d3.min(schools, d => d.lng) - 0.02,
+                maxLng: d3.max(schools, d => d.lng) + 0.02
+            };
+
+            const xScale = d3.scaleLinear()
+                .domain([bounds.minLng, bounds.maxLng])
+                .range([50, width - 50]);
+
+            const yScale = d3.scaleLinear()
+                .domain([bounds.minLat, bounds.maxLat])
+                .range([height - 50, 50]);
+
+            // Convert geographic coordinates to screen coordinates
+            const points = schools.map(school => [
+                xScale(school.lng),
+                yScale(school.lat),
+                school
+            ]);
+
+            // Create Voronoi diagram
+            const voronoi = d3.Delaunay.from(points.map(d => [d[0], d[1]])).voronoi([0, 0, width, height]);
+
+            // Create voronoi cells
+            svg.selectAll('.voronoi-cell')
+                .data(points)
+                .enter()
+                .append('path')
+                .attr('class', 'voronoi-cell')
+                .attr('d', (d, i) => voronoi.renderCell(i))
+                .attr('fill', d => scoreColors[d[2].score])
+                .on('mouseover', function(event, d) {
+                    const school = d[2];
+                    d3.select('.school-info')
+                        .html(`
+                            <h3>${school.name}</h3>
+                            <p><strong>Postcode:</strong> ${school.postcode}</p>
+                            <p><strong>Score:</strong> ${school.score}/10</p>
+                            <p><strong>URN:</strong> ${school.urn}</p>
+                            <p>This area represents all locations closest to this school.</p>
+                        `);
+                });
+
+            // Add school markers
+            svg.selectAll('.school-marker')
+                .data(points)
+                .enter()
+                .append('circle')
+                .attr('class', 'school-marker')
+                .attr('cx', d => d[0])
+                .attr('cy', d => d[1])
+                .attr('r', 6)
+                .attr('fill', '#2c3e50')
+                .on('mouseover', function(event, d) {
+                    const school = d[2];
+                    d3.select('.school-info')
+                        .html(`
+                            <h3>${school.name}</h3>
+                            <p><strong>Postcode:</strong> ${school.postcode}</p>
+                            <p><strong>Score:</strong> ${school.score}/10</p>
+                            <p><strong>URN:</strong> ${school.urn}</p>
+                            <p><strong>Location:</strong> ${school.lat.toFixed(5)}, ${school.lng.toFixed(5)}</p>
+                        `);
+                });
+
+            // Add school labels (truncated for readability)
+            svg.selectAll('.school-label')
+                .data(points)
+                .enter()
+                .append('text')
+                .attr('class', 'school-label')
+                .attr('x', d => d[0])
+                .attr('y', d => d[1] - 12)
+                .text(d => {
+                    const words = d[2].name.split(' ');
+                    return words.length > 2 ? words[0] + ' ' + words[1] : d[2].name;
+                });
+
+            // Add grid lines for reference
+            const xTicks = xScale.ticks(5);
+            const yTicks = yScale.ticks(5);
+
+            svg.selectAll('.grid-x')
+                .data(xTicks)
+                .enter()
+                .append('line')
+                .attr('class', 'grid-x')
+                .attr('x1', d => xScale(d))
+                .attr('x2', d => xScale(d))
+                .attr('y1', 0)
+                .attr('y2', height)
+                .attr('stroke', '#ddd')
+                .attr('stroke-width', 0.5)
+                .attr('opacity', 0.3);
+
+            svg.selectAll('.grid-y')
+                .data(yTicks)
+                .enter()
+                .append('line')
+                .attr('class', 'grid-y')
+                .attr('x1', 0)
+                .attr('x2', width)
+                .attr('y1', d => yScale(d))
+                .attr('y2', d => yScale(d))
+                .attr('stroke', '#ddd')
+                .attr('stroke-width', 0.5)
+                .attr('opacity', 0.3);
+        }
+    </script>
+</body>
+</html>

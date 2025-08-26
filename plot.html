@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Catchment Areas Map</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <input type="file" id="csvFile" accept=".csv" style="display: none;">
+    <div id="loadingStatus" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.9); padding: 20px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 10000; font-size: 1.2rem; color: #2c3e50;">
+        Loading schools data...
+    </div>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            font-weight: 300;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .file-upload-btn, .control-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .file-upload-btn:hover, .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        .zoom-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .location-search {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .location-input {
+            padding: 12px 20px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+            background: white;
+        }
+        
+        .location-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+        
+        .search-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        .map-container {
+            width: 100%;
+            height: 700px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            position: relative;
+            background: #f8f9fa;
+            cursor: grab;
+        }
+        
+        .map-container:active {
+            cursor: grabbing;
+        }
+        
+        .school-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            max-width: 350px;
+            z-index: 1000;
+        }
+        
+        .school-info h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        
+        .map-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            font-size: 0.9rem;
+        }
+        
+        .voronoi-cell {
+            transition: opacity 0.3s ease, stroke-width 0.3s ease;
+        }
+        
+        .voronoi-cell:hover {
+            opacity: 1 !important;
+        }
+        
+        .school-marker {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .school-marker:hover {
+            stroke-width: 3;
+        }
+        
+        .school-label {
+            font-weight: bold;
+            fill: #2c3e50;
+            text-anchor: middle;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .school-label.visible {
+            opacity: 1;
+        }
+        
+        .city-label {
+            font-weight: bold;
+            fill: #8B4513;
+            text-anchor: middle;
+            text-shadow: 2px 2px 4px rgba(255,255,255,0.8);
+            pointer-events: none;
+        }
+        
+        .city-marker {
+            fill: #8B4513;
+            stroke: #fff;
+            stroke-width: 2;
+        }
+        
+        .major-school {
+            stroke-width: 2;
+            stroke: #333;
+        }
+        
+        .cluster-marker {
+            stroke: #333;
+            stroke-width: 2;
+            cursor: pointer;
+        }
+        
+        .user-location {
+            fill: #007bff;
+            stroke: #fff;
+            stroke-width: 3;
+            cursor: pointer;
+        }
+        
+        .error-message {
+            color: #dc3545;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>School Catchment Areas Map - England</h1>
+        <div class="controls">
+            <div class="zoom-controls">
+                <button class="control-btn" onclick="zoomIn()">Zoom In</button>
+                <button class="control-btn" onclick="zoomOut()">Zoom Out</button>
+                <button class="control-btn" onclick="resetView()">Reset View</button>
+            </div>
+            <div class="location-search">
+                <input type="text" class="location-input" id="postcodeInput" placeholder="Enter postcode (e.g., SW1A 1AA)" maxlength="10">
+                <button class="search-btn" onclick="searchPostcode()">Find Location</button>
+            </div>
+        </div>
+        <div class="map-container" id="mapContainer">
+            <svg id="map"></svg>
+            <div class="map-info">
+                <strong>Navigation:</strong><br>
+                • Drag to pan<br>
+                • Scroll to zoom<br>
+                • Different details at each zoom level<br>
+                • Click schools/areas for details
+            </div>
+            <div class="school-info" id="schoolInfo">
+                <h3>School Catchment Areas</h3>
+                <p>Zoom in to see more detail. Each colored region shows the area closest to a particular school.</p>
+            </div>
+        </div>
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+    </div>
+
+    <script>
+        let schools = [];
+        let majorSchools = [];
+        let svg, mapGroup, transform, projection;
+        let width, height;
+        let currentHoveredLabel = null;
+        let currentZoomLevel = 'overview';
+        let userLocationMarker = null;
+        
+        // England bounds (approximate)
+        const englandBounds = {
+            minLat: 49.9,
+            maxLat: 55.8,
+            minLng: -6.4,
+            maxLng: 1.8
+        };
+        
+        // Major English cities and towns
+        const majorCities = [
+            { name: "London", lat: 51.5074, lng: -0.1278 },
+            { name: "Birmingham", lat: 52.4862, lng: -1.8904 },
+            { name: "Manchester", lat: 53.4808, lng: -2.2426 },
+            { name: "Liverpool", lat: 53.4084, lng: -2.9916 },
+            { name: "Leeds", lat: 53.8008, lng: -1.5491 },
+            { name: "Sheffield", lat: 53.3811, lng: -1.4701 },
+            { name: "Bristol", lat: 51.4545, lng: -2.5879 },
+            { name: "Newcastle", lat: 54.9783, lng: -1.6178 },
+            { name: "Nottingham", lat: 52.9548, lng: -1.1581 },
+            { name: "Leicester", lat: 52.6369, lng: -1.1398 },
+            { name: "Coventry", lat: 52.4068, lng: -1.5197 },
+            { name: "Hull", lat: 53.7457, lng: -0.3367 },
+            { name: "Plymouth", lat: 50.3755, lng: -4.1427 },
+            { name: "Stoke", lat: 53.0027, lng: -2.1794 },
+            { name: "Derby", lat: 52.9225, lng: -1.4746 },
+            { name: "Southampton", lat: 50.9097, lng: -1.4044 },
+            { name: "Portsmouth", lat: 50.8198, lng: -1.0880 },
+            { name: "York", lat: 53.9600, lng: -1.0873 },
+            { name: "Oxford", lat: 51.7520, lng: -1.2577 },
+            { name: "Cambridge", lat: 52.2053, lng: 0.1218 },
+            { name: "Brighton", lat: 50.8225, lng: -0.1372 },
+            { name: "Exeter", lat: 50.7184, lng: -3.5339 },
+            { name: "Bath", lat: 51.3811, lng: -2.3590 },
+            { name: "Canterbury", lat: 51.2802, lng: 1.0789 },
+            { name: "Chester", lat: 53.1906, lng: -2.8910 }
+        ];
+
+        // 10 distinct colors for scores 2-10
+        const scoreColors = {
+            1: '#4A0000', // Very dark red
+            2: '#8B0000', // Dark red
+            3: '#B22222', // Fire brick
+            4: '#DC143C', // Crimson
+            5: '#FF4500', // Orange red
+            6: '#FF8C00', // Dark orange
+            7: '#FFA500', // Orange
+            8: '#FFD700', // Gold
+            9: '#ADFF2F', // Green yellow
+            10: '#32CD32' // Lime green
+        };
+
+        // Zoom level thresholds
+        const ZOOM_LEVELS = {
+            OVERVIEW: { min: 0, max: 3, name: 'Overview' },
+            REGIONAL: { min: 3, max: 6, name: 'Regional' },
+            LOCAL: { min: 6, max: 12, name: 'Local' },
+            DETAILED: { min: 12, max: Infinity, name: 'Detailed' }
+        };
+
+        // File upload handler - replaced with automatic loading
+        window.addEventListener('DOMContentLoaded', function() {
+            loadSchoolsData();
+        });
+
+        async function loadSchoolsData() {
+            try {
+                const response = await fetch('schools_data.csv');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const csv = await response.text();
+                parseCSV(csv);
+                document.getElementById('loadingStatus').style.display = 'none';
+            } catch (error) {
+                console.error('Error loading schools data:', error);
+                document.getElementById('loadingStatus').innerHTML = `
+                    <div style="color: #dc3545;">
+                        <strong>Error loading data:</strong><br>
+                        Could not load 'schools_data.csv' from the same folder.<br>
+                        Please ensure the file exists and is accessible.
+                    </div>
+                `;
+            }
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            schools = [];
+            let totalRows = 0;
+            let validRows = 0;
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',').map(v => v.trim());
+                if (values.length >= 6) {
+                    totalRows++;
+                    const lat = parseFloat(values[4]);
+                    const lng = parseFloat(values[5]);
+                    const score = parseInt(values[3]);
+                    
+                    if (lat >= englandBounds.minLat && lat <= englandBounds.maxLat &&
+                        lng >= englandBounds.minLng && lng <= englandBounds.maxLng &&
+                        score >= 1 && score <= 10) {
+                        validRows++;
+                        schools.push({
+                            urn: parseInt(values[0]),
+                            name: values[1],
+                            postcode: values[2],
+                            score: score,
+                            lng: lng,
+                            lat: lat
+                        });
+                    }
+                }
+            }
+            
+            console.log(`Processed ${totalRows} rows, found ${validRows} valid schools in England bounds`);
+            
+            if (schools.length > 0) {
+                // Create major schools subset (top 20% by score, distributed geographically)
+                createMajorSchoolsSubset();
+                
+                console.log(`Loaded ${schools.length} schools in England`);
+                initializeMap();
+            } else {
+                document.getElementById('loadingStatus').innerHTML = `
+                    <div style="color: #dc3545;">
+                        <strong>No valid school data found for England</strong><br>
+                        Please check the CSV file format and data.
+                    </div>
+                `;
+            }
+        }
+
+        function createMajorSchoolsSubset() {
+            // Sort schools by score (descending) and take top performers
+            const topScoring = schools.filter(s => s.score >= 8).sort((a, b) => b.score - a.score);
+            
+            // Add geographic distribution - sample from different grid regions
+            const gridSize = 20; // Create a 20x20 grid over England
+            const latRange = englandBounds.maxLat - englandBounds.minLat;
+            const lngRange = englandBounds.maxLng - englandBounds.minLng;
+            
+            const gridSchools = {};
+            
+            schools.forEach(school => {
+                const gridLat = Math.floor((school.lat - englandBounds.minLat) / latRange * gridSize);
+                const gridLng = Math.floor((school.lng - englandBounds.minLng) / lngRange * gridSize);
+                const gridKey = `${gridLat},${gridLng}`;
+                
+                if (!gridSchools[gridKey] || school.score > gridSchools[gridKey].score) {
+                    gridSchools[gridKey] = school;
+                }
+            });
+            
+            // Combine top scoring and geographically distributed schools
+            majorSchools = [...new Set([...topScoring.slice(0, 200), ...Object.values(gridSchools)])];
+            console.log(`Created ${majorSchools.length} major schools from ${schools.length} total schools`);
+        }
+
+        function initializeMap() {
+            // Clear existing map
+            d3.select("#map").selectAll("*").remove();
+            
+            // Set up dimensions
+            const container = d3.select("#map");
+            const containerNode = container.node().parentNode;
+            width = containerNode.clientWidth;
+            height = containerNode.clientHeight;
+
+            svg = container
+                .attr("width", width)
+                .attr("height", height);
+
+            // Create projection for England
+            projection = d3.geoMercator()
+                .center([-2.5, 52.8])
+                .scale(2800)
+                .translate([width / 2, height / 2]);
+
+            // Create zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent([0.5, 50])
+                .on("zoom", handleZoom);
+
+            svg.call(zoom);
+            
+            // Store initial transform
+            transform = d3.zoomIdentity;
+
+            // Create main group for all map elements
+            mapGroup = svg.append("g");
+
+            drawMap();
+            updateZoomLevel(1); // Start at overview level
+            
+            // Store zoom behavior for external controls
+            svg.zoomBehavior = zoom;
+        }
+
+        function handleZoom(event) {
+            transform = event.transform;
+            mapGroup.attr("transform", transform);
+            updateZoomLevel(transform.k);
+        }
+
+        function updateZoomLevel(scale) {
+            let newZoomLevel = 'overview';
+            
+            // Determine current zoom level
+            if (scale >= ZOOM_LEVELS.DETAILED.min) {
+                newZoomLevel = 'detailed';
+            } else if (scale >= ZOOM_LEVELS.LOCAL.min) {
+                newZoomLevel = 'local';
+            } else if (scale >= ZOOM_LEVELS.REGIONAL.min) {
+                newZoomLevel = 'regional';
+            }
+            
+            // Only update if zoom level changed
+            if (newZoomLevel !== currentZoomLevel) {
+                currentZoomLevel = newZoomLevel;
+                updateMapVisibility();
+            }
+        }
+
+        function updateMapVisibility() {
+            const scale = transform.k;
+            
+            // Different visibility rules for each zoom level
+            switch(currentZoomLevel) {
+                case 'overview':
+                    // Far zoom: Only major schools, no catchment areas
+                    mapGroup.selectAll('.voronoi-cell')
+                        .style('opacity', 0)
+                        .style('stroke-width', 0);
+                    
+                    mapGroup.selectAll('.school-marker')
+                        .style('display', d => majorSchools.some(ms => ms.urn === d[2].urn) ? 'block' : 'none')
+                        .attr('r', 4)
+                        .style('stroke-width', 2)
+                        .style('stroke', '#333');
+                    
+                    mapGroup.selectAll('.city-label')
+                        .style('display', 'block')
+                        .style('font-size', '14px');
+                    break;
+                    
+                case 'regional':
+                    // Medium zoom: Show catchment areas without school markers
+                    mapGroup.selectAll('.voronoi-cell')
+                        .style('opacity', 0.6)
+                        .style('stroke-width', 0.5)
+                        .style('stroke', '#fff');
+                    
+                    mapGroup.selectAll('.school-marker')
+                        .style('display', 'none');
+                    
+                    mapGroup.selectAll('.city-label')
+                        .style('display', 'block')
+                        .style('font-size', '12px');
+                    break;
+                    
+                case 'local':
+                    // Close zoom: Show individual schools with minimal outlines
+                    mapGroup.selectAll('.voronoi-cell')
+                        .style('opacity', 0.4)
+                        .style('stroke-width', 0.2)
+                        .style('stroke', '#fff');
+                    
+                    mapGroup.selectAll('.school-marker')
+                        .style('display', 'block')
+                        .attr('r', 1.5) // Reduced from 2 to 1.5
+                        .style('stroke-width', 0.5)
+                        .style('stroke', '#fff');
+                    
+                    mapGroup.selectAll('.city-label')
+                        .style('display', 'block')
+                        .style('font-size', '10px');
+                    break;
+                    
+                case 'detailed':
+                    // Very close zoom: Full detail with white markers only
+                    mapGroup.selectAll('.voronoi-cell')
+                        .style('opacity', 0.7)
+                        .style('stroke-width', Math.max(0.1, 1 / scale))
+                        .style('stroke', '#fff');
+                    
+                    mapGroup.selectAll('.school-marker')
+                        .style('display', 'block')
+                        .attr('r', Math.max(0.3, 1 / scale))
+                        .style('stroke-width', 0) // No border
+                        .style('stroke', 'none')
+                        .style('fill', '#fff'); // All white
+                    
+                    mapGroup.selectAll('.city-label')
+                        .style('display', 'block')
+                        .style('font-size', Math.max(6, 7 / Math.sqrt(scale)) + 'px');
+                    break;
+            }
+            
+            // School labels only visible at local and detailed levels
+            mapGroup.selectAll('.school-label')
+                .style('font-size', Math.max(8, 11 / Math.sqrt(scale)) + 'px');
+        }
+
+        function drawMap() {
+            // Draw city markers and labels
+            const cityPoints = majorCities.map(city => ({
+                ...city,
+                x: projection([city.lng, city.lat])[0],
+                y: projection([city.lng, city.lat])[1]
+            }));
+
+            mapGroup.selectAll('.city-marker')
+                .data(cityPoints)
+                .enter()
+                .append('circle')
+                .attr('class', 'city-marker')
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y)
+                .attr('r', 5);
+
+            mapGroup.selectAll('.city-label')
+                .data(cityPoints)
+                .enter()
+                .append('text')
+                .attr('class', 'city-label')
+                .attr('x', d => d.x)
+                .attr('y', d => d.y - 8)
+                .text(d => d.name);
+
+            // Create school points for Voronoi
+            const schoolPoints = schools.map(school => {
+                const coords = projection([school.lng, school.lat]);
+                return [coords[0], coords[1], school];
+            }).filter(d => d[0] && d[1]);
+
+            if (schoolPoints.length === 0) return;
+
+            // Create Voronoi diagram
+            const voronoi = d3.Delaunay.from(schoolPoints.map(d => [d[0], d[1]])).voronoi([0, 0, width, height]);
+
+            // Create voronoi cells
+            mapGroup.selectAll('.voronoi-cell')
+                .data(schoolPoints)
+                .enter()
+                .append('path')
+                .attr('class', 'voronoi-cell')
+                .attr('d', (d, i) => voronoi.renderCell(i))
+                .attr('fill', d => scoreColors[d[2].score] || '#ccc')
+                .on('mouseover', function(event, d) {
+                    showSchoolInfo(d[2]);
+                    d3.select(this).style('opacity', 1);
+                })
+                .on('mouseout', function(event, d) {
+                    updateMapVisibility(); // Reset opacity based on zoom level
+                })
+                .on('click', function(event, d) {
+                    zoomToSchool(d[2]);
+                });
+
+            // Add school markers
+            mapGroup.selectAll('.school-marker')
+                .data(schoolPoints)
+                .enter()
+                .append('circle')
+                .attr('class', 'school-marker')
+                .attr('cx', d => d[0])
+                .attr('cy', d => d[1])
+                .attr('fill', d => scoreColors[d[2].score] || '#ccc')
+                .on('mouseover', function(event, d) {
+                    showSchoolInfo(d[2]);
+                })
+                .on('mouseout', function(event, d) {
+                    // No action needed - school name labels removed
+                })
+                .on('click', function(event, d) {
+                    zoomToSchool(d[2]);
+                });
+
+            // Add school labels (initially hidden)
+            mapGroup.selectAll('.school-label')
+                .data(schoolPoints)
+                .enter()
+                .append('text')
+                .attr('class', 'school-label')
+                .attr('x', d => d[0])
+                .attr('y', d => d[1] - 10)
+                .text(d => {
+                    const words = d[2].name.split(' ');
+                    return words.length > 2 ? words[0] + ' ' + words[1] : d[2].name;
+                });
+
+            // Initial visibility update
+            updateMapVisibility();
+        }
+
+        function showSchoolLabel(school) {
+            // Only show labels at local and detailed zoom levels
+            if (currentZoomLevel === 'local' || currentZoomLevel === 'detailed') {
+                hideSchoolLabel();
+                
+                mapGroup.selectAll('.school-label')
+                    .filter(d => d[2].urn === school.urn)
+                    .classed('visible', true);
+                
+                currentHoveredLabel = school.urn;
+            }
+        }
+
+        function hideSchoolLabel() {
+            mapGroup.selectAll('.school-label')
+                .classed('visible', false);
+            
+            currentHoveredLabel = null;
+        }
+
+        function showSchoolInfo(school) {
+            document.getElementById('schoolInfo').innerHTML = `
+                <h3>${school.name}</h3>
+                <p><strong>Postcode:</strong> ${school.postcode}</p>
+                <p><strong>Score:</strong> ${school.score}/10</p>
+                <p><strong>URN:</strong> ${school.urn}</p>
+                <p><strong>Location:</strong> ${school.lat.toFixed(4)}, ${school.lng.toFixed(4)}</p>
+                <p><em>Click to zoom to this school</em></p>
+            `;
+        }
+
+        function zoomToSchool(school) {
+            zoomToLocation(school.lng, school.lat);
+        }
+
+        function zoomToLocation(lng, lat) {
+            const coords = projection([lng, lat]);
+            const scale = 15;
+            const translate = [width / 2 - coords[0] * scale, height / 2 - coords[1] * scale];
+            
+            svg.transition()
+                .duration(750)
+                .call(svg.zoomBehavior.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+        }
+
+        // Postcode search functionality
+        async function searchPostcode() {
+            const postcode = document.getElementById('postcodeInput').value.trim();
+            const errorDiv = document.getElementById('errorMessage');
+            
+            if (!postcode) {
+                showError('Please enter a postcode');
+                return;
+            }
+            
+            // Clear previous errors
+            errorDiv.style.display = 'none';
+            
+            try {
+                // Use a free UK postcode API
+                const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`);
+                
+                if (!response.ok) {
+                    throw new Error('Postcode not found');
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 200 && data.result) {
+                    const lat = data.result.latitude;
+                    const lng = data.result.longitude;
+                    
+                    // Check if the postcode is within England bounds
+                    if (lat >= englandBounds.minLat && lat <= englandBounds.maxLat &&
+                        lng >= englandBounds.minLng && lng <= englandBounds.maxLng) {
+                        
+                        addUserLocation(lat, lng, postcode);
+                        zoomToLocation(lng, lat);
+                        
+                    } else {
+                        showError('Postcode is outside England bounds');
+                    }
+                } else {
+                    showError('Invalid postcode');
+                }
+                
+            } catch (error) {
+                console.error('Error searching postcode:', error);
+                showError('Could not find postcode. Please check the format (e.g., SW1A 1AA)');
+            }
+        }
+
+        function addUserLocation(lat, lng, postcode) {
+            const coords = projection([lng, lat]);
+            
+            // Remove existing user location marker
+            mapGroup.selectAll('.user-location').remove();
+            
+            // Add new user location marker
+            userLocationMarker = mapGroup.append('circle')
+                .attr('class', 'user-location')
+                .attr('cx', coords[0])
+                .attr('cy', coords[1])
+                .attr('r', 0.3)
+                .style('stroke-width', 0) // No border
+                .style('stroke', 'none')
+                .style('fill', '#0096C7') // Blue Colour
+                .on('click', function() {
+                    zoomToLocation(lng, lat);
+                });
+        }
+    </script>
+</body>
+</html>
